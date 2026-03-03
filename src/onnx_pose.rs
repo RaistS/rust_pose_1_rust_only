@@ -30,8 +30,16 @@ impl OnnxPoseEstimator {
     ) -> anyhow::Result<Self> {
         let mut net = dnn::read_net_from_onnx(model_path)
             .with_context(|| format!("No se pudo cargar modelo ONNX: {model_path}"))?;
-        let wants_cuda = backend_id == dnn::DNN_BACKEND_CUDA;
-        let cuda_target = target_id == dnn::DNN_TARGET_CUDA || target_id == dnn::DNN_TARGET_CUDA_FP16;
+        let requested_backend =
+            dnn::Backend::try_from(backend_id).unwrap_or(dnn::Backend::DNN_BACKEND_OPENCV);
+        let requested_target =
+            dnn::Target::try_from(target_id).unwrap_or(dnn::Target::DNN_TARGET_CPU);
+
+        let wants_cuda = matches!(requested_backend, dnn::Backend::DNN_BACKEND_CUDA);
+        let cuda_target = matches!(
+            requested_target,
+            dnn::Target::DNN_TARGET_CUDA | dnn::Target::DNN_TARGET_CUDA_FP16
+        );
 
         if wants_cuda && !cuda_target {
             eprintln!(
@@ -40,17 +48,22 @@ impl OnnxPoseEstimator {
             net.set_preferable_backend(dnn::DNN_BACKEND_OPENCV)?;
             net.set_preferable_target(dnn::DNN_TARGET_CPU)?;
         } else if wants_cuda {
-            // OpenCV valida backend/target en cada llamada; para CUDA hay que fijar target CUDA
-            // antes de backend CUDA para no caer en combinaciones intermedias invalidas.
-            let target_ok = net.set_preferable_target(target_id).is_ok();
-            let backend_ok = net.set_preferable_backend(backend_id).is_ok();
+            let available_cuda_targets = dnn::get_available_targets(dnn::Backend::DNN_BACKEND_CUDA)
+                .unwrap_or_else(|_| opencv::core::Vector::new());
+            let cuda_supported = available_cuda_targets
+                .iter()
+                .any(|t| t == dnn::Target::DNN_TARGET_CUDA || t == dnn::Target::DNN_TARGET_CUDA_FP16);
 
-            if !backend_ok || !target_ok {
+            if !cuda_supported {
                 eprintln!(
-                    "[WARN] CUDA DNN no disponible en este entorno. Fallback a OpenCV+CPU"
+                    "[WARN] Este OpenCV no tiene DNN CUDA disponible. Fallback a OpenCV+CPU"
                 );
                 net.set_preferable_backend(dnn::DNN_BACKEND_OPENCV)?;
                 net.set_preferable_target(dnn::DNN_TARGET_CPU)?;
+            } else {
+                // OpenCV valida backend/target en cada llamada; para CUDA fijamos target primero.
+                net.set_preferable_target(target_id)?;
+                net.set_preferable_backend(backend_id)?;
             }
         } else {
             net.set_preferable_backend(dnn::DNN_BACKEND_OPENCV)?;
