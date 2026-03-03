@@ -8,11 +8,13 @@ use opencv::prelude::*;
 #[cfg(feature = "camera")]
 use opencv::videoio::{VideoCapture, CAP_ANY, CAP_PROP_FRAME_HEIGHT, CAP_PROP_FRAME_WIDTH};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct CaptureFrame {
     pub width: u32,
     pub height: u32,
     pub ts_ms: u64,
+    #[cfg(feature = "camera")]
+    pub mat: Mat,
 }
 
 #[cfg(feature = "camera")]
@@ -54,6 +56,7 @@ impl CameraCapture {
             width,
             height,
             ts_ms: now_ms(),
+            mat,
         })
     }
 }

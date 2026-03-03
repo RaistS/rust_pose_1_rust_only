@@ -4,6 +4,7 @@ mod math;
 mod metrics;
 mod output;
 mod pipeline;
+mod render;
 
 use anyhow::Context;
 use camera::CameraCapture;
@@ -48,8 +49,11 @@ struct Cli {
     #[arg(long)]
     out_ndjson: Option<PathBuf>,
 
-    #[arg(long, default_value = "rust-only")]
+    #[arg(long, default_value = "rust-only-mock")]
     source_tag: String,
+
+    #[arg(long, default_value_t = false)]
+    show_window: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -62,10 +66,15 @@ fn main() -> anyhow::Result<()> {
 
     let mut fps_window = FpsWindow::new(report_every);
     let mut frame_id = 0u64;
+    #[cfg(feature = "camera")]
+    let mut last_fps = None;
 
     println!(
         "Runtime start mode={:?} fps_target={} report_every={} source_tag={}",
         cli.mode, cli.fps_target, cli.report_every, cli.source_tag
+    );
+    println!(
+        "Estimator activo: MOCK (angulos sinteticos desde keypoints simulados, no inferencia ONNX todavia)."
     );
 
     let mut camera = match cli.mode {
@@ -79,9 +88,18 @@ fn main() -> anyhow::Result<()> {
     loop {
         let loop_start = Instant::now();
 
+        #[cfg(feature = "camera")]
+        let mut maybe_image = None;
+
         let input = match camera.as_mut() {
             Some(camera) => {
                 let frame = camera.next_frame().context("Fallo leyendo frame de camara")?;
+
+                #[cfg(feature = "camera")]
+                {
+                    maybe_image = Some(frame.mat);
+                }
+
                 PipelineInput {
                     frame_id,
                     ts_ms: frame.ts_ms,
@@ -110,13 +128,23 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|| "None".to_string());
 
             println!(
-                "frame={} angle={} size={}x{} json_bytes={}",
+                "frame={} angle={} size={}x{} json_bytes={} estimator=mock",
                 frame.frame_id,
                 angle,
                 frame.image_width,
                 frame.image_height,
                 json_bytes
             );
+        }
+
+        #[cfg(feature = "camera")]
+        if cli.show_window {
+            if let Some(mut image) = maybe_image {
+                let should_exit = render::draw_and_show("rust_pose_1_rust_only", &mut image, &frame, last_fps)?;
+                if should_exit {
+                    break;
+                }
+            }
         }
 
         if let Some((fps, frames, elapsed)) = fps_window.tick() {
@@ -126,6 +154,11 @@ fn main() -> anyhow::Result<()> {
                 frames,
                 elapsed.as_secs_f64()
             );
+
+            #[cfg(feature = "camera")]
+            {
+                last_fps = Some(fps);
+            }
         }
 
         frame_id += 1;
