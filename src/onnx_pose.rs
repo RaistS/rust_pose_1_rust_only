@@ -40,8 +40,10 @@ impl OnnxPoseEstimator {
             net.set_preferable_backend(dnn::DNN_BACKEND_OPENCV)?;
             net.set_preferable_target(dnn::DNN_TARGET_CPU)?;
         } else if wants_cuda {
-            let backend_ok = net.set_preferable_backend(backend_id).is_ok();
+            // OpenCV valida backend/target en cada llamada; para CUDA hay que fijar target CUDA
+            // antes de backend CUDA para no caer en combinaciones intermedias invalidas.
             let target_ok = net.set_preferable_target(target_id).is_ok();
+            let backend_ok = net.set_preferable_backend(backend_id).is_ok();
 
             if !backend_ok || !target_ok {
                 eprintln!(
