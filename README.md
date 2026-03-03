@@ -1,77 +1,66 @@
 # rust_pose_1_rust_only
 
-Implementacion Rust-only para pipeline de pose, sin runtime Python.
+Implementacion Rust-only para pipeline de pose, sin runtime Python en produccion.
 
 Estado actual:
 - Runtime en Rust con modos `mock` y `camera`.
-- Medicion de FPS por ventana de N frames.
-- Calculo de angulo de codo derecho desde keypoints.
-- Ventana en vivo opcional en modo camera con overlay de angulo/FPS (`--show-window`).
-- Salida opcional a archivo NDJSON para analisis offline.
-- Arquitectura modular lista para conectar inferencia ONNX real.
-
-## Importante sobre el angulo actual
-
-El estimador vigente es `MockEstimator`.
-Eso significa que, de momento, el angulo que ves en terminal/overlay es sintetico (simulado), no proviene aun de un modelo ONNX real.
+- Estimador configurable: `mock` o `onnx`.
+- Inferencia real YOLO pose ONNX (OpenCV DNN) en modo `--estimator onnx`.
+- Ventana en vivo opcional con overlay de keypoints, angulo y FPS.
+- Salida opcional NDJSON para analisis offline.
 
 ## Ejecutar (mock)
 
 ```powershell
-cargo run -- --mode mock --fps-target 60 --report-every 120
+cargo run --features camera -- --mode camera --estimator mock --camera-index 0 --show-window
 ```
 
-Con limite de frames:
+## Ejecutar (inferencia real ONNX)
+
+Modelo por defecto: `models/yolov8n-pose.onnx`
 
 ```powershell
-cargo run -- --mode mock --max-frames 300
+cargo run --features camera -- --mode camera --estimator onnx --camera-index 0 --camera-width 640 --camera-height 480 --show-window
 ```
 
-## Ejecutar (camera real + ventana)
-
-Modo camera requiere compilar con feature `camera` (OpenCV):
+Si quieres ruta explicita:
 
 ```powershell
-cargo run --features camera -- --mode camera --camera-index 0 --camera-width 640 --camera-height 480 --show-window
+cargo run --features camera -- --mode camera --estimator onnx --model-path .\models\yolov8n-pose.onnx --show-window
 ```
 
 Pulsa `q` para cerrar la ventana.
 
-## Guardar salida NDJSON
-
-```powershell
-cargo run -- --mode mock --out-ndjson .\out_pose.ndjson --max-frames 1000
-```
-
-Cada linea del archivo es un `PoseFrame` JSON.
-
 ## CLI principal
 
 - `--mode mock|camera`
+- `--estimator mock|onnx`
 - `--fps-target <u32>`
 - `--report-every <u32>`
-- `--max-frames <u64>` (0 = infinito)
+- `--max-frames <u64>`
 - `--camera-index <i32>`
 - `--camera-width <i32>`
 - `--camera-height <i32>`
 - `--show-window`
+- `--model-path <PATH>`
+- `--conf-thres <f32>`
+- `--kpt-thres <f32>`
 - `--out-ndjson <PATH>`
 - `--source-tag <STRING>`
 
-## Siguiente fase (inferencia real)
+## Notas
 
-1. Exportar modelo pose a ONNX una sola vez.
-2. Crear `OnnxEstimator` que implemente `PoseEstimator`.
-3. Decodificar tensor de salida a 17 keypoints COCO.
-4. Sustituir `MockEstimator` por `OnnxEstimator` en `main.rs`.
+- En `estimator=onnx`, el esqueleto y el angulo salen de inferencia real del modelo ONNX.
+- Si no detecta persona, no dibuja keypoints y el angulo aparece `n/a`.
 
 ## Estructura
 
-- `src/main.rs`: runtime, CLI, control de modos y FPS.
-- `src/camera.rs`: captura de camara (feature-gated).
-- `src/render.rs`: overlay + ventana en vivo.
-- `src/pipeline.rs`: contratos del pipeline y frame builder.
-- `src/domain.rs`: structs serializables de salida.
-- `src/math.rs`: utilidades geometricas.
-- `src/metrics.rs`: ventana de FPS.
-- `src/output.rs`: sink NDJSON.
+- `src/main.rs`: runtime y CLI.
+- `src/onnx_pose.rs`: inferencia ONNX + decode de keypoints.
+- `src/camera.rs`: captura de camara.
+- `src/render.rs`: overlay y ventana en vivo.
+- `src/pipeline.rs`: contratos de frame y mock estimator.
+- `src/domain.rs`: modelos serializables.
+- `src/math.rs`: calculo angular.
+- `src/metrics.rs`: FPS window.
+- `src/output.rs`: NDJSON sink.

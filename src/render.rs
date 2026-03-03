@@ -1,4 +1,4 @@
-use crate::domain::PoseFrame;
+use crate::domain::{Keypoint, PoseFrame};
 
 #[cfg(feature = "camera")]
 use opencv::core::{Point, Scalar};
@@ -10,6 +10,26 @@ use opencv::imgproc;
 use opencv::prelude::*;
 
 #[cfg(feature = "camera")]
+const COCO_EDGES: &[(u8, u8)] = &[
+    (0, 1),
+    (0, 2),
+    (1, 3),
+    (2, 4),
+    (5, 6),
+    (5, 7),
+    (7, 9),
+    (6, 8),
+    (8, 10),
+    (5, 11),
+    (6, 12),
+    (11, 12),
+    (11, 13),
+    (13, 15),
+    (12, 14),
+    (14, 16),
+];
+
+#[cfg(feature = "camera")]
 pub fn draw_and_show(
     window_name: &str,
     image: &mut Mat,
@@ -17,46 +37,7 @@ pub fn draw_and_show(
     fps: Option<f64>,
 ) -> anyhow::Result<bool> {
     if let Some(person) = frame.people.first() {
-        let kp6 = person.keypoints.iter().find(|k| k.idx == 6 && k.score > 0.0);
-        let kp8 = person.keypoints.iter().find(|k| k.idx == 8 && k.score > 0.0);
-        let kp10 = person.keypoints.iter().find(|k| k.idx == 10 && k.score > 0.0);
-
-        if let (Some(a), Some(b), Some(c)) = (kp6, kp8, kp10) {
-            let p1 = Point::new(a.x as i32, a.y as i32);
-            let p2 = Point::new(b.x as i32, b.y as i32);
-            let p3 = Point::new(c.x as i32, c.y as i32);
-
-            imgproc::line(
-                image,
-                p1,
-                p2,
-                Scalar::new(0.0, 255.0, 0.0, 0.0),
-                2,
-                imgproc::LINE_AA,
-                0,
-            )?;
-            imgproc::line(
-                image,
-                p2,
-                p3,
-                Scalar::new(0.0, 255.0, 0.0, 0.0),
-                2,
-                imgproc::LINE_AA,
-                0,
-            )?;
-
-            for p in [p1, p2, p3] {
-                imgproc::circle(
-                    image,
-                    p,
-                    6,
-                    Scalar::new(0.0, 0.0, 255.0, 0.0),
-                    -1,
-                    imgproc::LINE_AA,
-                    0,
-                )?;
-            }
-        }
+        draw_full_skeleton(image, &person.keypoints)?;
 
         let angle_txt = person
             .right_elbow_deg
@@ -70,6 +51,18 @@ pub fn draw_and_show(
             imgproc::FONT_HERSHEY_SIMPLEX,
             0.8,
             Scalar::new(0.0, 255.0, 0.0, 0.0),
+            2,
+            imgproc::LINE_AA,
+            false,
+        )?;
+    } else {
+        imgproc::put_text(
+            image,
+            "Sin persona detectada",
+            Point::new(20, 35),
+            imgproc::FONT_HERSHEY_SIMPLEX,
+            0.8,
+            Scalar::new(0.0, 180.0, 255.0, 0.0),
             2,
             imgproc::LINE_AA,
             false,
@@ -110,6 +103,39 @@ pub fn draw_and_show(
     let key = highgui::wait_key(1)?;
 
     Ok(key == 113 || key == 81)
+}
+
+#[cfg(feature = "camera")]
+fn draw_full_skeleton(image: &mut Mat, keypoints: &[Keypoint]) -> anyhow::Result<()> {
+    for &(a, b) in COCO_EDGES {
+        let ka = keypoints.iter().find(|k| k.idx == a && k.score > 0.0);
+        let kb = keypoints.iter().find(|k| k.idx == b && k.score > 0.0);
+        if let (Some(ka), Some(kb)) = (ka, kb) {
+            imgproc::line(
+                image,
+                Point::new(ka.x as i32, ka.y as i32),
+                Point::new(kb.x as i32, kb.y as i32),
+                Scalar::new(0.0, 255.0, 0.0, 0.0),
+                2,
+                imgproc::LINE_AA,
+                0,
+            )?;
+        }
+    }
+
+    for kp in keypoints.iter().filter(|k| k.score > 0.0) {
+        imgproc::circle(
+            image,
+            Point::new(kp.x as i32, kp.y as i32),
+            4,
+            Scalar::new(0.0, 0.0, 255.0, 0.0),
+            -1,
+            imgproc::LINE_AA,
+            0,
+        )?;
+    }
+
+    Ok(())
 }
 
 #[cfg(not(feature = "camera"))]
