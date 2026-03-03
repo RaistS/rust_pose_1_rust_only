@@ -20,11 +20,30 @@ pub struct OnnxPoseEstimator {
 
 #[cfg(feature = "camera")]
 impl OnnxPoseEstimator {
-    pub fn new(model_path: &str, input_size: i32, conf_thres: f32, kpt_thres: f32) -> anyhow::Result<Self> {
+    pub fn new(
+        model_path: &str,
+        input_size: i32,
+        conf_thres: f32,
+        kpt_thres: f32,
+        backend_id: i32,
+        target_id: i32,
+    ) -> anyhow::Result<Self> {
         let mut net = dnn::read_net_from_onnx(model_path)
             .with_context(|| format!("No se pudo cargar modelo ONNX: {model_path}"))?;
-        net.set_preferable_backend(dnn::DNN_BACKEND_OPENCV)?;
-        net.set_preferable_target(dnn::DNN_TARGET_CPU)?;
+
+        if let Err(err) = net.set_preferable_backend(backend_id) {
+            eprintln!(
+                "[WARN] Backend DNN solicitado no disponible ({err}). Fallback a DNN_BACKEND_OPENCV"
+            );
+            net.set_preferable_backend(dnn::DNN_BACKEND_OPENCV)?;
+        }
+
+        if let Err(err) = net.set_preferable_target(target_id) {
+            eprintln!(
+                "[WARN] Target DNN solicitado no disponible ({err}). Fallback a DNN_TARGET_CPU"
+            );
+            net.set_preferable_target(dnn::DNN_TARGET_CPU)?;
+        }
 
         Ok(Self {
             net,

@@ -9,28 +9,31 @@ Estado actual:
 - Ventana en vivo opcional con overlay de keypoints, angulo y FPS.
 - Salida opcional NDJSON para analisis offline.
 
-## Ejecutar (mock)
+## Rama dev (GPU experimental)
+
+La rama `dev` incluye selector de backend/target DNN para probar GPU:
+- `--dnn-backend opencv|cuda`
+- `--dnn-target cpu|cuda|cuda-fp16`
+
+Si el backend/target no esta disponible, hace fallback automatico a CPU con warning.
+
+## Ejecutar (inferencia real ONNX CPU)
 
 ```powershell
-cargo run --features camera -- --mode camera --estimator mock --camera-index 0 --show-window
+cargo run --features camera -- --mode camera --estimator onnx --dnn-backend opencv --dnn-target cpu --camera-index 0 --show-window
 ```
 
-## Ejecutar (inferencia real ONNX)
-
-Modelo por defecto: `models/yolov8n-pose.onnx`
+## Ejecutar (intento GPU CUDA)
 
 ```powershell
-cargo run --features camera -- --mode camera --estimator onnx --camera-index 0 --camera-width 640 --camera-height 480 --show-window
+cargo run --features camera -- --mode camera --estimator onnx --dnn-backend cuda --dnn-target cuda-fp16 --camera-index 0 --show-window
 ```
 
-## Perfil rapido recomendado (mas FPS)
+## Perfil rapido recomendado (mas FPS en CPU)
 
 ```powershell
-cargo run --features camera -- --mode camera --estimator onnx --camera-index 0 --camera-width 480 --camera-height 360 --infer-every 2 --show-window --conf-thres 0.15 --kpt-thres 0.10
+cargo run --features camera -- --mode camera --estimator onnx --dnn-backend opencv --dnn-target cpu --camera-index 0 --camera-width 480 --camera-height 360 --infer-every 2 --show-window --conf-thres 0.15 --kpt-thres 0.10
 ```
-
-- `--infer-every`: ejecuta inferencia cada N frames y reutiliza ultimo esqueleto en frames intermedios.
-- Con `infer-every 2` en esta maquina la ventana subio a ~15 FPS efectivos tras warm-up.
 
 ## Nota sobre input-size
 
@@ -41,6 +44,8 @@ cargo run --features camera -- --mode camera --estimator onnx --camera-index 0 -
 
 - `--mode mock|camera`
 - `--estimator mock|onnx`
+- `--dnn-backend opencv|cuda`
+- `--dnn-target cpu|cuda|cuda-fp16`
 - `--fps-target <u32>`
 - `--report-every <u32>`
 - `--max-frames <u64>`
@@ -55,11 +60,6 @@ cargo run --features camera -- --mode camera --estimator onnx --camera-index 0 -
 - `--infer-every <u32>`
 - `--out-ndjson <PATH>`
 - `--source-tag <STRING>`
-
-## Notas
-
-- En `estimator=onnx`, el esqueleto y el angulo salen de inferencia real del modelo ONNX.
-- Si no detecta persona, no dibuja keypoints y el angulo aparece `n/a`.
 
 ## Estructura
 
