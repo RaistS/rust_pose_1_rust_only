@@ -30,18 +30,28 @@ impl OnnxPoseEstimator {
     ) -> anyhow::Result<Self> {
         let mut net = dnn::read_net_from_onnx(model_path)
             .with_context(|| format!("No se pudo cargar modelo ONNX: {model_path}"))?;
+        let wants_cuda = backend_id == dnn::DNN_BACKEND_CUDA;
+        let cuda_target = target_id == dnn::DNN_TARGET_CUDA || target_id == dnn::DNN_TARGET_CUDA_FP16;
 
-        if let Err(err) = net.set_preferable_backend(backend_id) {
+        if wants_cuda && !cuda_target {
             eprintln!(
-                "[WARN] Backend DNN solicitado no disponible ({err}). Fallback a DNN_BACKEND_OPENCV"
+                "[WARN] Combinacion backend/target invalida para CUDA. Fallback a OpenCV+CPU"
             );
             net.set_preferable_backend(dnn::DNN_BACKEND_OPENCV)?;
-        }
+            net.set_preferable_target(dnn::DNN_TARGET_CPU)?;
+        } else if wants_cuda {
+            let backend_ok = net.set_preferable_backend(backend_id).is_ok();
+            let target_ok = net.set_preferable_target(target_id).is_ok();
 
-        if let Err(err) = net.set_preferable_target(target_id) {
-            eprintln!(
-                "[WARN] Target DNN solicitado no disponible ({err}). Fallback a DNN_TARGET_CPU"
-            );
+            if !backend_ok || !target_ok {
+                eprintln!(
+                    "[WARN] CUDA DNN no disponible en este entorno. Fallback a OpenCV+CPU"
+                );
+                net.set_preferable_backend(dnn::DNN_BACKEND_OPENCV)?;
+                net.set_preferable_target(dnn::DNN_TARGET_CPU)?;
+            }
+        } else {
+            net.set_preferable_backend(dnn::DNN_BACKEND_OPENCV)?;
             net.set_preferable_target(dnn::DNN_TARGET_CPU)?;
         }
 
