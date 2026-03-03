@@ -74,12 +74,19 @@ struct Cli {
 
     #[arg(long, default_value_t = 0.15)]
     kpt_thres: f32,
+
+    #[arg(long, default_value_t = 640)]
+    input_size: i32,
+
+    #[arg(long, default_value_t = 2)]
+    infer_every: u32,
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let report_every = cli.report_every.max(1) as u64;
     let frame_budget = Duration::from_secs_f64(1.0 / (cli.fps_target.max(1) as f64));
+    let infer_every = cli.infer_every.max(1) as u64;
 
     let mut sink = FrameSink::new(cli.out_ndjson.as_deref())?;
     let mut mock_estimator = MockEstimator::new();
@@ -91,7 +98,7 @@ fn main() -> anyhow::Result<()> {
         Estimator::Onnx => Some(
             onnx_pose::OnnxPoseEstimator::new(
                 &resolved_model_path,
-                640,
+                cli.input_size,
                 cli.conf_thres,
                 cli.kpt_thres,
             )
@@ -110,9 +117,18 @@ fn main() -> anyhow::Result<()> {
     #[cfg(feature = "camera")]
     let mut last_fps = None;
 
+    #[cfg(feature = "camera")]
+    let mut cached_people = Vec::new();
+
     println!(
-        "Runtime start mode={:?} estimator={:?} fps_target={} report_every={} source_tag={}",
-        cli.mode, cli.estimator, cli.fps_target, cli.report_every, cli.source_tag
+        "Runtime start mode={:?} estimator={:?} fps_target={} report_every={} source_tag={} input_size={} infer_every={}",
+        cli.mode,
+        cli.estimator,
+        cli.fps_target,
+        cli.report_every,
+        cli.source_tag,
+        cli.input_size,
+        infer_every
     );
     if matches!(cli.estimator, Estimator::Onnx) {
         println!("ONNX model: {}", resolved_model_path);
@@ -161,13 +177,17 @@ fn main() -> anyhow::Result<()> {
             Estimator::Onnx => {
                 #[cfg(feature = "camera")]
                 {
-                    let image = maybe_image
-                        .as_ref()
-                        .context("Estimator ONNX requiere frame de camara")?;
-                    onnx_estimator
-                        .as_mut()
-                        .context("ONNX estimator no disponible")?
-                        .estimate(image)?
+                    let should_infer = frame_id % infer_every == 0 || cached_people.is_empty();
+                    if should_infer {
+                        let image = maybe_image
+                            .as_ref()
+                            .context("Estimator ONNX requiere frame de camara")?;
+                        cached_people = onnx_estimator
+                            .as_mut()
+                            .context("ONNX estimator no disponible")?
+                            .estimate(image)?;
+                    }
+                    cached_people.clone()
                 }
                 #[cfg(not(feature = "camera"))]
                 {

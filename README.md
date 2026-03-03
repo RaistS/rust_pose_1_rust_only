@@ -23,13 +23,19 @@ Modelo por defecto: `models/yolov8n-pose.onnx`
 cargo run --features camera -- --mode camera --estimator onnx --camera-index 0 --camera-width 640 --camera-height 480 --show-window
 ```
 
-Si quieres ruta explicita:
+## Perfil rapido recomendado (mas FPS)
 
 ```powershell
-cargo run --features camera -- --mode camera --estimator onnx --model-path .\models\yolov8n-pose.onnx --show-window
+cargo run --features camera -- --mode camera --estimator onnx --camera-index 0 --camera-width 480 --camera-height 360 --infer-every 2 --show-window --conf-thres 0.15 --kpt-thres 0.10
 ```
 
-Pulsa `q` para cerrar la ventana.
+- `--infer-every`: ejecuta inferencia cada N frames y reutiliza ultimo esqueleto en frames intermedios.
+- Con `infer-every 2` en esta maquina la ventana subio a ~15 FPS efectivos tras warm-up.
+
+## Nota sobre input-size
+
+- El ONNX incluido (`models/yolov8n-pose.onnx`) esta exportado a `640`, por eso el valor seguro es `--input-size 640`.
+- Si usas `320` o `416` con este ONNX concreto, OpenCV DNN puede fallar por `Reshape`.
 
 ## CLI principal
 
@@ -45,6 +51,8 @@ Pulsa `q` para cerrar la ventana.
 - `--model-path <PATH>`
 - `--conf-thres <f32>`
 - `--kpt-thres <f32>`
+- `--input-size <i32>`
+- `--infer-every <u32>`
 - `--out-ndjson <PATH>`
 - `--source-tag <STRING>`
 
