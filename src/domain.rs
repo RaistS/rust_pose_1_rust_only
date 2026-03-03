@@ -17,9 +17,11 @@ pub struct PersonPose {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoseFrame {
-    pub event: &'static str,
-    pub source: &'static str,
+    pub event: String,
+    pub source: String,
     pub frame_id: u64,
     pub ts_ms: u64,
+    pub image_width: u32,
+    pub image_height: u32,
     pub people: Vec<PersonPose>,
 }

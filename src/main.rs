@@ -1,72 +1,131 @@
+mod camera;
 mod domain;
 mod math;
+mod metrics;
+mod output;
 mod pipeline;
 
 use anyhow::Context;
-use clap::Parser;
-use pipeline::{build_frame, MockEstimator, PoseEstimator};
+use camera::CameraCapture;
+use clap::{Parser, ValueEnum};
+use metrics::FpsWindow;
+use output::FrameSink;
+use pipeline::{build_frame, now_ms, MockEstimator, PipelineInput, PoseEstimator};
+use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum Mode {
+    Mock,
+    Camera,
+}
+
 #[derive(Debug, Parser)]
-#[command(author, version, about = "Rust-only pose pipeline starter")]
+#[command(author, version, about = "Rust-only pose pipeline runtime")]
 struct Cli {
+    #[arg(long, value_enum, default_value_t = Mode::Mock)]
+    mode: Mode,
+
     #[arg(long, default_value_t = 30)]
     fps_target: u32,
+
     #[arg(long, default_value_t = 60)]
     report_every: u32,
+
     #[arg(long, default_value_t = 0)]
     max_frames: u64,
+
+    #[arg(long, default_value_t = 0)]
+    camera_index: i32,
+
+    #[arg(long, default_value_t = 640)]
+    camera_width: i32,
+
+    #[arg(long, default_value_t = 480)]
+    camera_height: i32,
+
+    #[arg(long)]
+    out_ndjson: Option<PathBuf>,
+
+    #[arg(long, default_value = "rust-only")]
+    source_tag: String,
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-
-    let frame_budget = Duration::from_secs_f64(1.0 / (cli.fps_target.max(1) as f64));
     let report_every = cli.report_every.max(1) as u64;
+    let frame_budget = Duration::from_secs_f64(1.0 / (cli.fps_target.max(1) as f64));
 
+    let mut sink = FrameSink::new(cli.out_ndjson.as_deref())?;
     let mut estimator = MockEstimator::new();
+
+    let mut fps_window = FpsWindow::new(report_every);
     let mut frame_id = 0u64;
 
-    let mut fps_count = 0u64;
-    let mut fps_start = Instant::now();
-
     println!(
-        "Rust-only pipeline running (mock mode). target_fps={} report_every={}",
-        cli.fps_target, cli.report_every
+        "Runtime start mode={:?} fps_target={} report_every={} source_tag={}",
+        cli.mode, cli.fps_target, cli.report_every, cli.source_tag
     );
 
-    loop {
-        let tick_start = Instant::now();
+    let mut camera = match cli.mode {
+        Mode::Mock => None,
+        Mode::Camera => Some(
+            CameraCapture::open(cli.camera_index, cli.camera_width, cli.camera_height)
+                .context("No se pudo iniciar modo camera")?,
+        ),
+    };
 
-        let people = estimator.estimate(frame_id);
-        let frame = build_frame(frame_id, people);
+    loop {
+        let loop_start = Instant::now();
+
+        let input = match camera.as_mut() {
+            Some(camera) => {
+                let frame = camera.next_frame().context("Fallo leyendo frame de camara")?;
+                PipelineInput {
+                    frame_id,
+                    ts_ms: frame.ts_ms,
+                    image_width: frame.width,
+                    image_height: frame.height,
+                }
+            }
+            None => PipelineInput {
+                frame_id,
+                ts_ms: now_ms(),
+                image_width: cli.camera_width.max(1) as u32,
+                image_height: cli.camera_height.max(1) as u32,
+            },
+        };
+
+        let people = estimator.estimate(&input);
+        let frame = build_frame(&cli.source_tag, &input, people);
+        let json_bytes = sink.write(&frame)?;
 
         if frame_id % report_every == 0 {
-            let first_angle = frame
+            let angle = frame
                 .people
                 .first()
                 .and_then(|p| p.right_elbow_deg)
                 .map(|v| format!("{v:.2}"))
                 .unwrap_or_else(|| "None".to_string());
 
-            let json_preview = serde_json::to_string(&frame)
-                .context("No se pudo serializar PoseFrame")?;
             println!(
-                "frame={} angle={} json_bytes={}",
+                "frame={} angle={} size={}x{} json_bytes={}",
                 frame.frame_id,
-                first_angle,
-                json_preview.len()
+                angle,
+                frame.image_width,
+                frame.image_height,
+                json_bytes
             );
         }
 
-        fps_count += 1;
-        if fps_count >= report_every {
-            let elapsed = fps_start.elapsed().as_secs_f64().max(1e-9);
-            let fps = fps_count as f64 / elapsed;
-            println!("[FPS] {:.2} (window={} frames)", fps, fps_count);
-            fps_count = 0;
-            fps_start = Instant::now();
+        if let Some((fps, frames, elapsed)) = fps_window.tick() {
+            println!(
+                "[FPS] {:.2} (window={} frames, {:.2}s)",
+                fps,
+                frames,
+                elapsed.as_secs_f64()
+            );
         }
 
         frame_id += 1;
@@ -74,9 +133,9 @@ fn main() -> anyhow::Result<()> {
             break;
         }
 
-        let tick_elapsed = tick_start.elapsed();
-        if tick_elapsed < frame_budget {
-            thread::sleep(frame_budget - tick_elapsed);
+        let elapsed = loop_start.elapsed();
+        if elapsed < frame_budget {
+            thread::sleep(frame_budget - elapsed);
         }
     }
 

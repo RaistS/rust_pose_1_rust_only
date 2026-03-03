@@ -1,10 +1,17 @@
 use crate::domain::{Keypoint, PersonPose, PoseFrame};
 use crate::math::compute_right_elbow_deg;
 use std::f32::consts::PI;
-use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Debug, Clone, Copy)]
+pub struct PipelineInput {
+    pub frame_id: u64,
+    pub ts_ms: u64,
+    pub image_width: u32,
+    pub image_height: u32,
+}
 
 pub trait PoseEstimator {
-    fn estimate(&mut self, frame_id: u64) -> Vec<PersonPose>;
+    fn estimate(&mut self, input: &PipelineInput) -> Vec<PersonPose>;
 }
 
 pub struct MockEstimator {
@@ -18,26 +25,29 @@ impl MockEstimator {
 }
 
 impl PoseEstimator for MockEstimator {
-    fn estimate(&mut self, frame_id: u64) -> Vec<PersonPose> {
+    fn estimate(&mut self, input: &PipelineInput) -> Vec<PersonPose> {
         self.phase += 0.08;
         let t = self.phase;
 
+        let cx = (input.image_width as f32 * 0.5).max(160.0);
+        let cy = (input.image_height as f32 * 0.45).max(120.0);
+
         let shoulder = Keypoint {
             idx: 6,
-            x: 320.0,
-            y: 180.0,
+            x: cx,
+            y: cy,
             score: 0.95,
         };
         let elbow = Keypoint {
             idx: 8,
-            x: 360.0 + 10.0 * t.sin(),
-            y: 230.0,
+            x: cx + 45.0 + 10.0 * t.sin(),
+            y: cy + 55.0,
             score: 0.95,
         };
         let wrist = Keypoint {
             idx: 10,
-            x: 405.0 + 40.0 * (t + PI / 4.0).sin(),
-            y: 275.0 + 20.0 * (t * 0.5).cos(),
+            x: cx + 95.0 + 40.0 * (t + PI / 4.0).sin(),
+            y: cy + 100.0 + 20.0 * (t * 0.5).cos(),
             score: 0.95,
         };
 
@@ -57,24 +67,28 @@ impl PoseEstimator for MockEstimator {
         let right_elbow_deg = compute_right_elbow_deg(&keypoints);
 
         vec![PersonPose {
-            id: (frame_id % 4) as u32,
+            id: (input.frame_id % 4) as u32,
             right_elbow_deg,
             keypoints,
         }]
     }
 }
 
-pub fn build_frame(frame_id: u64, people: Vec<PersonPose>) -> PoseFrame {
+pub fn build_frame(source: &str, input: &PipelineInput, people: Vec<PersonPose>) -> PoseFrame {
     PoseFrame {
-        event: "pose_frame",
-        source: "rust-only-mock",
-        frame_id,
-        ts_ms: now_ms(),
+        event: "pose_frame".to_string(),
+        source: source.to_string(),
+        frame_id: input.frame_id,
+        ts_ms: input.ts_ms,
+        image_width: input.image_width,
+        image_height: input.image_height,
         people,
     }
 }
 
-fn now_ms() -> u64 {
+pub fn now_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

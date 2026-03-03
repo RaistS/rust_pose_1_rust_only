@@ -1,43 +1,67 @@
 # rust_pose_1_rust_only
 
-Starter Rust-only project to migrate pose processing out of Python.
+Implementacion Rust-only para pipeline de pose, sin runtime Python.
 
-Current status:
-- 100% Rust runtime (no Python dependency).
-- Real-time loop with target FPS and FPS reporting.
-- Pose domain model + right elbow angle computation.
-- Mock estimator that simulates pose keypoints to validate architecture/performance.
+Estado actual:
+- Runtime en Rust con modos `mock` y `camera`.
+- Medicion de FPS por ventana de N frames.
+- Calculo de angulo de codo derecho desde keypoints.
+- Salida opcional a archivo NDJSON para analisis offline.
+- Arquitectura modular lista para conectar inferencia ONNX real.
 
-## Run
-
-```powershell
-cargo run -- --fps-target 30 --report-every 60
-```
-
-Optional stop condition:
+## Ejecutar (mock)
 
 ```powershell
-cargo run -- --fps-target 30 --report-every 30 --max-frames 300
+cargo run -- --mode mock --fps-target 60 --report-every 120
 ```
 
-## Why this starter exists
+Con limite de frames:
 
-Before integrating camera + inference engines, this gives you a clean Rust baseline for:
-- loop timing,
-- serialization cost,
-- post-processing cost,
-- logging and diagnostics.
+```powershell
+cargo run -- --mode mock --max-frames 300
+```
 
-## Next steps to make it real vision
+## Ejecutar (camera real)
 
-1. Camera capture in Rust (`opencv` crate or `nokhwa`).
-2. Pose inference in Rust via ONNX Runtime.
-3. Decode model output into keypoints.
-4. Replace `MockEstimator` with real estimator.
+Modo camera requiere compilar con feature `camera` (OpenCV):
 
-## Suggested architecture
+```powershell
+cargo run --features camera -- --mode camera --camera-index 0 --camera-width 640 --camera-height 480
+```
 
-- `src/domain.rs`: frame/keypoint/person structs.
-- `src/math.rs`: angle and geometric utilities.
-- `src/pipeline.rs`: estimator abstraction and frame builder.
-- `src/main.rs`: runtime loop, FPS and reporting.
+## Guardar salida NDJSON
+
+```powershell
+cargo run -- --mode mock --out-ndjson .\out_pose.ndjson --max-frames 1000
+```
+
+Cada linea del archivo es un `PoseFrame` JSON.
+
+## CLI principal
+
+- `--mode mock|camera`
+- `--fps-target <u32>`
+- `--report-every <u32>`
+- `--max-frames <u64>` (0 = infinito)
+- `--camera-index <i32>`
+- `--camera-width <i32>`
+- `--camera-height <i32>`
+- `--out-ndjson <PATH>`
+- `--source-tag <STRING>`
+
+## Siguiente fase (inferencia real)
+
+1. Exportar modelo pose a ONNX una sola vez (fuera de runtime).
+2. Crear `OnnxEstimator` que implemente `PoseEstimator`.
+3. Decodificar tensor de salida a 17 keypoints COCO.
+4. Sustituir `MockEstimator` por `OnnxEstimator` en `main.rs`.
+
+## Estructura
+
+- `src/main.rs`: runtime, CLI, control de modos y FPS.
+- `src/camera.rs`: captura de camara (feature-gated).
+- `src/pipeline.rs`: contratos del pipeline y frame builder.
+- `src/domain.rs`: structs serializables de salida.
+- `src/math.rs`: utilidades geometricas.
+- `src/metrics.rs`: ventana de FPS.
+- `src/output.rs`: sink NDJSON.
