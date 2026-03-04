@@ -1,1 +1,5 @@
 target/
+
+*.log
+opencv_*_build.log
+

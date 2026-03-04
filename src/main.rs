@@ -18,6 +18,9 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "camera")]
+use opencv::dnn;
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Mode {
     Mock,
@@ -30,6 +33,19 @@ enum Estimator {
     Onnx,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum DnnBackend {
+    Opencv,
+    Cuda,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum DnnTarget {
+    Cpu,
+    Cuda,
+    CudaFp16,
+}
+
 #[derive(Debug, Parser)]
 #[command(author, version, about = "Rust-only pose pipeline runtime")]
 struct Cli {
@@ -38,6 +54,12 @@ struct Cli {
 
     #[arg(long, value_enum, default_value_t = Estimator::Mock)]
     estimator: Estimator,
+
+    #[arg(long, value_enum, default_value_t = DnnBackend::Opencv)]
+    dnn_backend: DnnBackend,
+
+    #[arg(long, value_enum, default_value_t = DnnTarget::Cpu)]
+    dnn_target: DnnTarget,
 
     #[arg(long, default_value_t = 30)]
     fps_target: u32,
@@ -94,6 +116,9 @@ fn main() -> anyhow::Result<()> {
     let resolved_model_path = resolve_model_path(&cli.model_path);
 
     #[cfg(feature = "camera")]
+    let (backend_id, target_id) = map_dnn_backend_target(cli.dnn_backend, cli.dnn_target);
+
+    #[cfg(feature = "camera")]
     let mut onnx_estimator = match cli.estimator {
         Estimator::Onnx => Some(
             onnx_pose::OnnxPoseEstimator::new(
@@ -101,6 +126,8 @@ fn main() -> anyhow::Result<()> {
                 cli.input_size,
                 cli.conf_thres,
                 cli.kpt_thres,
+                backend_id,
+                target_id,
             )
             .with_context(|| format!("No se pudo inicializar ONNX con {}", resolved_model_path))?,
         ),
@@ -121,14 +148,16 @@ fn main() -> anyhow::Result<()> {
     let mut cached_people = Vec::new();
 
     println!(
-        "Runtime start mode={:?} estimator={:?} fps_target={} report_every={} source_tag={} input_size={} infer_every={}",
+        "Runtime start mode={:?} estimator={:?} fps_target={} report_every={} source_tag={} input_size={} infer_every={} dnn_backend={:?} dnn_target={:?}",
         cli.mode,
         cli.estimator,
         cli.fps_target,
         cli.report_every,
         cli.source_tag,
         cli.input_size,
-        infer_every
+        infer_every,
+        cli.dnn_backend,
+        cli.dnn_target
     );
     if matches!(cli.estimator, Estimator::Onnx) {
         println!("ONNX model: {}", resolved_model_path);
@@ -257,6 +286,22 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "camera")]
+fn map_dnn_backend_target(backend: DnnBackend, target: DnnTarget) -> (i32, i32) {
+    let backend_id = match backend {
+        DnnBackend::Opencv => dnn::DNN_BACKEND_OPENCV,
+        DnnBackend::Cuda => dnn::DNN_BACKEND_CUDA,
+    };
+
+    let target_id = match target {
+        DnnTarget::Cpu => dnn::DNN_TARGET_CPU,
+        DnnTarget::Cuda => dnn::DNN_TARGET_CUDA,
+        DnnTarget::CudaFp16 => dnn::DNN_TARGET_CUDA_FP16,
+    };
+
+    (backend_id, target_id)
+}
+
 fn resolve_model_path(model_path: &str) -> String {
     let p = PathBuf::from(model_path);
     if p.exists() {
@@ -270,4 +315,3 @@ fn resolve_model_path(model_path: &str) -> String {
 
     model_path.to_string()
 }
-
